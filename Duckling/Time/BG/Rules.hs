@@ -64,6 +64,21 @@ ruleIntersectOf = Rule
       _ -> Nothing
   }
 
+ruleHourAndMinute :: Rule
+ruleHourAndMinute = Rule
+  { name = "<hour> and <minute>"
+  , pattern =
+    [ Predicate $ isGrainOfTime TG.Hour
+    , regex "и"
+    , Predicate $ or . sequence [isNotLatent, isGrainFinerThan TG.Hour]
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time td1:_:Token Time td2:_)
+        | (not $ TTime.latent td1) || (not $ TTime.latent td2) ->
+        Token Time . notLatent <$> intersect td1 td2
+      _ -> Nothing
+  }
+
 ruleIntersectYear :: Rule
 ruleIntersectYear = Rule
   { name = "intersect by \"през\", \"на\", \"за\", \",\" for year"
@@ -529,7 +544,7 @@ ruleAtTOD :: Rule
 ruleAtTOD = Rule
   { name = "at <time-of-day>"
   , pattern =
-    [ regex "в"
+    [ regex "в|през"
     , Predicate isATimeOfDay
     ]
   , prod = \tokens -> case tokens of
@@ -621,7 +636,7 @@ rulePM :: Rule
 rulePM = Rule
   { name = "hhmm pm"
   , pattern =
-    [ regex "((?:1[012]|0?\\d))[:.ч]([0-5]\\d)"
+    [ regex "((?:1[012]|0?\\d))([:.ч]| и )([0-5]\\d)"
     , regex "вечерта|вечер|следобед|следобяд|след обяд|след обед"
     ]
   , prod = \tokens -> case tokens of
@@ -759,7 +774,7 @@ spelledOutHourPM = Rule
 
 ruleHONumeral :: Rule
 ruleHONumeral = Rule
-  { name = "<hour-of-day> <integer>"
+  { name = "<hour-of-day> and <integer>"
   , pattern =
     [ Predicate isAnHourOfDay
     , regex "и"
@@ -926,10 +941,25 @@ ruleYYYYMMDD :: Rule
 ruleYYYYMMDD = Rule
   { name = "yyyy-mm-dd"
   , pattern =
-    [ regex "(\\d{2,4})-(0?[1-9]|1[0-2])-(3[01]|[12]\\d|0?[1-9])"
+    [ regex "(\\d{4})-(0?[1-9]|1[0-2])-(3[01]|[12]\\d|0?[1-9])"
     ]
   , prod = \case
       (Token RegexMatch (GroupMatch (yy:mm:dd:_)):_) -> do
+        y <- parseInt yy
+        m <- parseInt mm
+        d <- parseInt dd
+        tt $ yearMonthDay y m d
+      _ -> Nothing
+  }
+
+ruleDDMMYYYY :: Rule
+ruleDDMMYYYY = Rule
+  { name = "dd-mm-yyyy"
+  , pattern =
+    [ regex "(3[01]|[12]\\d|0?[1-9])[\\.\\/\\-](0?[1-9]|1[0-2])[\\.\\/\\-](\\d{2,4})"
+    ]
+  , prod = \case
+      (Token RegexMatch (GroupMatch (dd:mm:yy:_)):_) -> do
         y <- parseInt yy
         m <- parseInt mm
         d <- parseInt dd
@@ -966,7 +996,7 @@ rulePartOfDays :: Rule
 rulePartOfDays = Rule
   { name = "part of days"
   , pattern =
-    [ regex "(сутрин|сутринта|на обяд|наобед|следобед|след обед|след обяд|вечер|вечерта|нощем|нощта|през нощта)"
+    [ regex "(сутрин|сутринта|на обяд|наобед|следобед|след обед|след обяд|вечер|вечерта|привечер|нощем|нощта|деня)"
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):_) -> do
@@ -980,10 +1010,11 @@ rulePartOfDays = Rule
               "след обяд"   -> (hour False 12, hour False 18)
               "вечер"      -> (hour False 18, hour False 0)
               "вечерта"    -> (hour False 18, hour False 0)
+              "привечер"   -> (hour False 18, hour False 0)
               -- TODO: Does this work?
-              "нощем"      -> (hour False 22, hour False 4)
-              "нощта"      -> (hour False 22, hour False 4)
-              "през нощта" -> (hour False 22, hour False 4)
+              "нощем"      -> (hour False 22, hour False 5)
+              "нощта"      -> (hour False 22, hour False 5)
+              "деня"  -> (hour False 7, hour False 22)
               _            -> (hour False 12, hour False 19)
         td <- interval TTime.Open start end
         tt . partOfDay $ mkLatent td
@@ -1068,18 +1099,31 @@ ruleTimePOD = Rule
       _ -> Nothing
   }
 
--- rulePODofTime :: Rule
--- rulePODofTime = Rule
---   { name = "<part-of-day> of <time>"
---   , pattern =
---     [ Predicate isAPartOfDay
---     , regex "of"
---     , dimension Time
---     ]
---   , prod = \tokens -> case tokens of
---       (Token Time pod:_:Token Time td:_) -> Token Time <$> intersect pod td
---       _ -> Nothing
---   }
+ruleTimePOD :: Rule
+ruleTimePOD = Rule
+  { name = "<time> during <part-of-day>"
+  , pattern =
+    [ dimension Time
+    , regex "през"
+    , Predicate isAPartOfDay
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time td:_:Token Time pod:_) -> Token Time <$> intersect pod td
+      _ -> Nothing
+  }
+
+rulePODofTime :: Rule
+rulePODofTime = Rule
+  { name = "<part-of-day> of <time>"
+  , pattern =
+    [ Predicate isAPartOfDay
+    , regex "в"
+    , dimension Time
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time pod:_:Token Time td:_) -> Token Time <$> intersect pod td
+      _ -> Nothing
+  }
 
 ruleWeekend :: Rule
 ruleWeekend = Rule
@@ -2534,6 +2578,8 @@ rules :: [Rule]
 rules =
   [ ruleIntersect
   , ruleIntersectOf
+  , ruleHourAndMinute
+  , ruleHourAndMinuteTOD
   , ruleIntersectYear
   , ruleAbsorbOnDay
   , ruleAbsorbOnADOW
@@ -2595,6 +2641,7 @@ rules =
   -- , ruleYYYYQQ
   , ruleYYYYMM
   , ruleYYYYMMDD
+  , ruleDDMMYYYY
   , ruleMMYYYY
   , ruleNoon
   , rulePartOfDays
@@ -2604,7 +2651,7 @@ rules =
   , ruleTonight
   , ruleAfterPartofday
   , ruleTimePOD
-  -- , rulePODofTime
+  , rulePODofTime
   , ruleWeekend
   , ruleWeek
   , ruleTODPrecision
