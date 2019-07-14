@@ -54,27 +54,12 @@ ruleIntersectOf :: Rule
 ruleIntersectOf = Rule
   { name = "intersect by \"на\", \"през\", \"за\", \",\""
   , pattern =
-    [ Predicate isNotLatent
+    [ Predicate $ isGrainFinerThan TG.Year
     , regex "на|през|за|,"
-    , Predicate isNotLatent
+    , Predicate $ or . sequence [isNotLatent, isGrainOfTime TG.Year]
     ]
   , prod = \tokens -> case tokens of
       (Token Time td1:_:Token Time td2:_) ->
-        Token Time . notLatent <$> intersect td1 td2
-      _ -> Nothing
-  }
-
-ruleHourAndMinute :: Rule
-ruleHourAndMinute = Rule
-  { name = "<hour> and <minute>"
-  , pattern =
-    [ Predicate $ isGrainOfTime TG.Hour
-    , regex "и"
-    , Predicate $ or . sequence [isNotLatent, isGrainFinerThan TG.Hour]
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Time td1:_:Token Time td2:_)
-        | (not $ TTime.latent td1) || (not $ TTime.latent td2) ->
         Token Time . notLatent <$> intersect td1 td2
       _ -> Nothing
   }
@@ -94,15 +79,15 @@ ruleIntersectYear = Rule
       _ -> Nothing
   }
 
-ruleAbsorbOnDay :: Rule
-ruleAbsorbOnDay = Rule
+ruleOnDay :: Rule
+ruleOnDay = Rule
   { name = "on <day>"
   , pattern =
     [ regex "на"
     , Predicate $ isGrainOfTime TG.Day
     ]
   , prod = \tokens -> case tokens of
-      (_:token:_) -> Just token
+      (_:Token Time td:_) -> tt . notLatent $ td
       _ -> Nothing
   }
 
@@ -110,7 +95,7 @@ ruleAbsorbOnADOW :: Rule
 ruleAbsorbOnADOW = Rule
   { name = "on a <named-day>"
   , pattern =
-    [ regex "в|през"
+    [ regex "в|във"
     , Predicate isADayOfWeek
     ]
   , prod = \tokens -> case tokens of
@@ -161,15 +146,42 @@ ruleNow = Rule
   , prod = \_ -> tt now
   }
 
-ruleNextDOW :: Rule
-ruleNextDOW = Rule
-  { name = "this|next <day-of-week>"
+ruleThisDOW :: Rule
+ruleThisDOW = Rule
+  { name = "this <day-of-week>"
   , pattern =
-    [ regex "този|следващия|тази|следващата"
+    [ regex "т[оа]зи|идващ(ият?|ата)"
     , Predicate isADayOfWeek
     ]
   , prod = \tokens -> case tokens of
-      (_:Token Time td:_) -> tt $ predNth 0 True td
+      (_:Token Time td:_) ->
+        tt $ predNth 0 True td
+      _ -> Nothing
+  }
+
+ruleNextDOW :: Rule
+ruleNextDOW = Rule
+  { name = "next <day-of-week>"
+  , pattern =
+    [ regex "следващ(ият?|ата)"
+    , Predicate isADayOfWeek
+    ]
+  , prod = \tokens -> case tokens of
+      (_:Token Time td:_) ->
+        tt $ predNth 1 False td
+      _ -> Nothing
+  }
+
+ruleNext2DOW :: Rule
+ruleNext2DOW = Rule
+  { name = "next <day-of-week>"
+  , pattern =
+    [ regex "по-следващ(ият?|ата)"
+    , Predicate isADayOfWeek
+    ]
+  , prod = \tokens -> case tokens of
+      (_:Token Time td:_) ->
+        tt $ predNth 2 False td
       _ -> Nothing
   }
 
@@ -177,7 +189,7 @@ ruleThisTime :: Rule
 ruleThisTime = Rule
   { name = "this <time>"
   , pattern =
-    [ regex "този|тази|идващия|идващата"
+    [ regex "т[оа]зи|идващ(ият?|ата)"
     , Predicate isOkWithThisNext
     ]
   , prod = \tokens -> case tokens of
@@ -189,11 +201,23 @@ ruleNextTime :: Rule
 ruleNextTime = Rule
   { name = "next <time>"
   , pattern =
-    [ regex "следващия|следващата"
+    [ regex "следващ(ият?|ата)"
     , Predicate isOkWithThisNext
     ]
   , prod = \tokens -> case tokens of
-      (_:Token Time td:_) -> tt $ predNth 0 True td
+      (_:Token Time td:_) -> tt $ predNth 1 False td
+      _ -> Nothing
+  }
+
+ruleNext2Time :: Rule
+ruleNext2Time = Rule
+  { name = "next <time>"
+  , pattern =
+    [ regex "по-следващ(ият?|ата)"
+    , Predicate isOkWithThisNext
+    ]
+  , prod = \tokens -> case tokens of
+      (_:Token Time td:_) -> tt $ predNth 2 False td
       _ -> Nothing
   }
 
@@ -201,7 +225,7 @@ ruleLastTime :: Rule
 ruleLastTime = Rule
   { name = "last <time>"
   , pattern =
-    [ regex "последната|последния|миналия|миналата"
+    [ regex "последн(ият?|ите|ата)|предн(ият?|ите|ата)|минал(ият?|ите|ата)"
     , Predicate isOkWithThisNext
     ]
   , prod = \tokens -> case tokens of
@@ -213,7 +237,7 @@ ruleLastWeekendOfMonth :: Rule
 ruleLastWeekendOfMonth = Rule
   { name = "last weekend of <named-month>"
   , pattern =
-    [ regex "последния\\sуикенд\\s(от|на)"
+    [ regex "последният?\\sуикенд\\s(от|на)"
     , Predicate isAMonth
     ]
   , prod = \tokens -> case tokens of
@@ -222,25 +246,25 @@ ruleLastWeekendOfMonth = Rule
   }
 
 -- TODO
-ruleTimeBeforeLastAfterNext :: Rule
-ruleTimeBeforeLastAfterNext = Rule
-  { name = "<time> before last|after next"
-  , pattern =
-    [ dimension Time
-    , regex "(преди последния|преди последната|след следващия|след следващата)"
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Time td:Token RegexMatch (GroupMatch (match:_)):_) ->
-        -- TODO
-        tt $ predNth 1 (or [(Text.toLower match == "след следващия"), (Text.toLower match == "след следващата")]) td
-      _ -> Nothing
-  }
+-- ruleTimeBeforeLastAfterNext :: Rule
+-- ruleTimeBeforeLastAfterNext = Rule
+--   { name = "<time> before last|after next"
+--   , pattern =
+--     [ dimension Time
+--     , regex "(преди последния|преди последната|след следващия|след следващата)"
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token Time td:Token RegexMatch (GroupMatch (match:_)):_) ->
+--         -- TODO
+--         tt $ predNth 1 (or [(Text.toLower match == "след следващия"), (Text.toLower match == "след следващата")]) td
+--       _ -> Nothing
+--   }
 
 ruleLastDOWOfTime :: Rule
 ruleLastDOWOfTime = Rule
   { name = "last <day-of-week> of <time>"
   , pattern =
-    [ regex "последния|последната"
+    [ regex "последн(ият?|ата)"
     , Predicate isADayOfWeek
     , regex "на|от|в|във"
     , dimension Time
@@ -255,7 +279,7 @@ ruleLastCycleOfTime :: Rule
 ruleLastCycleOfTime = Rule
   { name = "last <cycle> of <time>"
   , pattern =
-    [ regex "последния|последната"
+    [ regex "последн(ият?|ата)"
     , dimension TimeGrain
     , regex "от|на|в|във"
     , dimension Time
@@ -286,7 +310,7 @@ ruleNthTimeOfTime = Rule
   , pattern =
     [ dimension Ordinal
     , dimension Time
-    , regex "от|на|в|във"
+    , regex "от"
     , dimension Time
     ]
   , prod = \tokens -> case tokens of
@@ -295,21 +319,21 @@ ruleNthTimeOfTime = Rule
       _ -> Nothing
   }
 
-ruleTheNthTimeOfTime :: Rule
-ruleTheNthTimeOfTime = Rule
-  { name = "the nth <time> of <time>"
-  , pattern =
-    [ regex "the"
-    , dimension Ordinal
-    , dimension Time
-    , regex "от|на|в|във"
-    , dimension Time
-    ]
-  , prod = \tokens -> case tokens of
-      (_:Token Ordinal od:Token Time td1:_:Token Time td2:_) -> Token Time .
-         predNth (TOrdinal.value od - 1) False <$> intersect td2 td1
-      _ -> Nothing
-  }
+-- ruleTheNthTimeOfTime :: Rule
+-- ruleTheNthTimeOfTime = Rule
+--   { name = "the nth <time> of <time>"
+--   , pattern =
+--     [ regex "the"
+--     , dimension Ordinal
+--     , dimension Time
+--     , regex "от"
+--     , dimension Time
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (_:Token Ordinal od:Token Time td1:_:Token Time td2:_) -> Token Time .
+--          predNth (TOrdinal.value od - 1) False <$> intersect td2 td1
+--       _ -> Nothing
+--   }
 
 ruleNthTimeAfterTime :: Rule
 ruleNthTimeAfterTime = Rule
@@ -386,6 +410,44 @@ ruleYearLatent = Rule
 --     _ -> Nothing
 --   }
 
+ruleYear :: Rule
+ruleYear = Rule
+  { name = "<year>yr"
+  , pattern =
+    [ Predicate $ isIntegerBetween (-10000) 10000
+    , regex "г(\\.|од(\\.|ина)?)?"
+    ]
+  , prod = \case
+    (token:_:_) -> do
+      y <- getIntValue token
+      tt $ year y
+    _ -> Nothing
+  }
+
+ruleNextYear :: Rule
+ruleNextYear = Rule
+  { name = "nextyear"
+  , pattern =
+    [ regex "догодина"
+    ]
+  , prod = \case
+    (_:_) -> do
+      tt $ cycleNth TG.Year 1
+    _ -> Nothing
+  }
+
+ruleNext2Year :: Rule
+ruleNext2Year = Rule
+  { name = "nextyear2"
+  , pattern =
+    [ regex "по-догодина"
+    ]
+  , prod = \case
+    (_:_) -> do
+      tt $ cycleNth TG.Year 2
+    _ -> Nothing
+  }
+
 ruleDOMLatent :: Rule
 ruleDOMLatent = Rule
   { name = "<day-of-month> (ordinal)"
@@ -396,6 +458,17 @@ ruleDOMLatent = Rule
         tt . mkLatent $ dayOfMonth n
       _ -> Nothing
   }
+
+-- ruleDOMOrdinal :: Rule
+-- ruleDOMOrdinal = Rule
+--   { name = "<day-of-month> (ordinal)"
+--   , pattern = [Predicate isDOMOrdinal]
+--   , prod = \tokens -> case tokens of
+--       (token:_) -> do
+--         n <- getIntValue token
+--         tt . mkLatent $ dayOfMonth n
+--       _ -> Nothing
+--   }
 
 -- ruleTheDOMNumeral :: Rule
 -- ruleTheDOMNumeral = Rule
@@ -412,18 +485,18 @@ ruleDOMLatent = Rule
 --   }
 
 -- TODO: Why do we need this when we have ruleDOMLatent?
-ruleTheDOMOrdinal :: Rule
-ruleTheDOMOrdinal = Rule
-  { name = "<day-of-month> (ordinal)"
-  , pattern =
-    [ Predicate isDOMOrdinal
-    ]
-  , prod = \tokens -> case tokens of
-      (_:
-       Token Ordinal OrdinalData{TOrdinal.value = v}:
-       _) -> tt $ dayOfMonth v
-      _ -> Nothing
-  }
+-- ruleTheDOMOrdinal :: Rule
+-- ruleTheDOMOrdinal = Rule
+--   { name = "<day-of-month> (ordinal)"
+--   , pattern =
+--     [ Predicate isDOMOrdinal
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (_:
+--        Token Ordinal OrdinalData{TOrdinal.value = v}:
+--        _) -> tt $ dayOfMonth v
+--       _ -> Nothing
+--   }
 
 ruleNamedDOMOrdinal :: Rule
 ruleNamedDOMOrdinal = Rule
@@ -431,6 +504,31 @@ ruleNamedDOMOrdinal = Rule
   , pattern =
     [ Predicate isDOMOrdinal
     , Predicate $ or . sequence [isAMonth, isADayOfWeek]
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time td:token:_) -> Token Time <$> intersectDOM td token
+      _ -> Nothing
+  }
+
+ruleNamedDOMOrdinal2 :: Rule
+ruleNamedDOMOrdinal2 = Rule
+  { name = "<named-day> <ordinal>"
+  , pattern =
+    [ Predicate isADayOfWeek
+    , Predicate isDOMOrdinal
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time td:token:_) -> Token Time <$> intersectDOM td token
+      _ -> Nothing
+  }
+
+ruleNamedDOMOrdinal3 :: Rule
+ruleNamedDOMOrdinal3 = Rule
+  { name = "<named-day>, <ordinal>"
+  , pattern =
+    [ Predicate isADayOfWeek
+    , regex ","
+    , Predicate isDOMOrdinal
     ]
   , prod = \tokens -> case tokens of
       (Token Time td:token:_) -> Token Time <$> intersectDOM td token
@@ -567,7 +665,7 @@ ruleOClock = Rule
 ruleHHMM :: Rule
 ruleHHMM = Rule
   { name = "hh:mm"
-  , pattern = [regex "((?:[012]?\\d)|(?:2[0-3]))[:.]([0-5]\\d)"]
+  , pattern = [regex "((?:[012]?\\d)|(?:2[0-3]))[:.]([0-5]\\d)(ч\\.?)?"]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (hh:mm:_)):_) -> do
         h <- parseInt hh
@@ -576,17 +674,16 @@ ruleHHMM = Rule
       _ -> Nothing
   }
 
-ruleHHhMM :: Rule
-ruleHHhMM = Rule
-  { name = "hhhmm"
+ruleHHh :: Rule
+ruleHHh = Rule
+  { name = "hhh"
   , pattern =
-    [ regex "(?<!/)((?:[012]?\\d)|(?:2[0-3]))ч(([0-5]\\d)|(?!\\d))"
+    [ regex "(?<!/)((?:[012]?\\d)|(?:2[0-3]))ч\\.?"
     ]
   , prod = \case
-      (Token RegexMatch (GroupMatch (hh:mm:_)):_) -> do
+      (Token RegexMatch (GroupMatch (hh:_)):_) -> do
         h <- parseInt hh
-        m <- parseInt mm <|> Just 0
-        tt $ hourMinute False h m
+        tt $ hour (h < 12) h
       _ -> Nothing
   }
 
@@ -617,123 +714,123 @@ ruleHHMMSS = Rule
       _ -> Nothing
   }
 
-ruleAM :: Rule
-ruleAM = Rule
-  { name = "hhmm am"
-  , pattern =
-    [ regex "((?:1[012]|0?\\d))[:.ч]([0-5]\\d)"
-    , regex "сутринта|сутрин|предиобед|преди обяд|преди обед|предиобяд"
-    ]
-  , prod = \tokens -> case tokens of
-      (Token RegexMatch (GroupMatch (hh:mm:_)):_:_) -> do
-        h <- parseInt hh
-        m <- parseInt mm
-        tt . timeOfDayAMPM True $ hourMinute True h m
-      _ -> Nothing
-  }
+-- ruleAM :: Rule
+-- ruleAM = Rule
+--   { name = "hhmm am"
+--   , pattern =
+--     [ regex "((?:1[012]|0?\\d))[:.ч]([0-5]\\d)"
+--     , regex "сутринта|сутрин|предиобед|преди обяд|преди обед|предиобяд"
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token RegexMatch (GroupMatch (hh:mm:_)):_:_) -> do
+--         h <- parseInt hh
+--         m <- parseInt mm
+--         tt . timeOfDayAMPM True $ hourMinute True h m
+--       _ -> Nothing
+--   }
 
-rulePM :: Rule
-rulePM = Rule
-  { name = "hhmm pm"
-  , pattern =
-    [ regex "((?:1[012]|0?\\d))([:.ч]| и )([0-5]\\d)"
-    , regex "вечерта|вечер|следобед|следобяд|след обяд|след обед"
-    ]
-  , prod = \tokens -> case tokens of
-      (Token RegexMatch (GroupMatch (hh:mm:_)):_:_) -> do
-        h <- parseInt hh
-        m <- parseInt mm
-        tt . timeOfDayAMPM False $ hourMinute True h m
-      _ -> Nothing
-  }
+-- rulePM :: Rule
+-- rulePM = Rule
+--   { name = "hhmm pm"
+--   , pattern =
+--     [ regex "((?:1[012]|0?\\d))([:.ч]| и )([0-5]\\d)"
+--     , regex "вечерта|вечер|следобед|следобяд|след обяд|след обед"
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token RegexMatch (GroupMatch (hh:mm:_)):_:_) -> do
+--         h <- parseInt hh
+--         m <- parseInt mm
+--         tt . timeOfDayAMPM False $ hourMinute True h m
+--       _ -> Nothing
+--   }
 
-ruleHourAM :: Rule
-ruleHourAM = Rule
-  { name = "hh am"
-  , pattern =
-    [ regex "((?:1[012]|0?\\d))[.ч]*"
-    , regex "сутринта|сутрин|предиобед|преди обяд|преди обед|предиобяд"
-    ]
-  , prod = \tokens -> case tokens of
-      (Token RegexMatch (GroupMatch (hh:_)):_:_) -> do
-        h <- parseInt hh
-        tt . timeOfDayAMPM True $ hour True h
-      _ -> Nothing
-  }
+-- ruleHourAM :: Rule
+-- ruleHourAM = Rule
+--   { name = "hh am"
+--   , pattern =
+--     [ regex "((?:1[012]|0?\\d))[.ч]*"
+--     , regex "сутринта|сутрин|предиобед|преди обяд|преди обед|предиобяд"
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token RegexMatch (GroupMatch (hh:_)):_:_) -> do
+--         h <- parseInt hh
+--         tt . timeOfDayAMPM True $ hour True h
+--       _ -> Nothing
+--   }
 
-ruleHourPM :: Rule
-ruleHourPM = Rule
-  { name = "hh pm"
-  , pattern =
-    [ regex "((?:1[012]|0?\\d))[.ч]*"
-    , regex "вечерта|вечер|следобед|следобяд|след обяд|след обед"
-    ]
-  , prod = \tokens -> case tokens of
-      (Token RegexMatch (GroupMatch (hh:_)):_:_) -> do
-        h <- parseInt hh
-        tt . timeOfDayAMPM False $ hour True h
-      _ -> Nothing
-  }
+-- ruleHourPM :: Rule
+-- ruleHourPM = Rule
+--   { name = "hh pm"
+--   , pattern =
+--     [ regex "((?:1[012]|0?\\d))[.ч]*"
+--     , regex "вечерта|вечер|следобед|следобяд|след обяд|след обед"
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token RegexMatch (GroupMatch (hh:_)):_:_) -> do
+--         h <- parseInt hh
+--         tt . timeOfDayAMPM False $ hour True h
+--       _ -> Nothing
+--   }
 
-spelledOutAM :: Rule
-spelledOutAM = Rule
-  { name = "spelled out numbers am"
-  , pattern =
-    [ Predicate $ isIntegerBetween 1 12
-    , Predicate $ isIntegerBetween 1 59
-    , regex "сутринта|сутрин|предиобед|преди обед|преди обяд"
-    ]
-    , prod = \tokens -> case tokens of
-        (h:m:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
-          hh <- getIntValue h
-          mm <- getIntValue m
-          tt . timeOfDayAMPM True $ hourMinute True hh mm
-        _ -> Nothing
-  }
+-- spelledOutAM :: Rule
+-- spelledOutAM = Rule
+--   { name = "spelled out numbers am"
+--   , pattern =
+--     [ Predicate $ isIntegerBetween 1 12
+--     , Predicate $ isIntegerBetween 1 59
+--     , regex "сутринта|сутрин|предиобед|преди обед|преди обяд"
+--     ]
+--     , prod = \tokens -> case tokens of
+--         (h:m:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
+--           hh <- getIntValue h
+--           mm <- getIntValue m
+--           tt . timeOfDayAMPM True $ hourMinute True hh mm
+--         _ -> Nothing
+--   }
 
-spelledOutPM :: Rule
-spelledOutPM = Rule
-  { name = "spelled out numbers pm"
-  , pattern =
-    [ Predicate $ isIntegerBetween 1 12
-    , Predicate $ isIntegerBetween 1 59
-    , regex "вечерта|вечер|следобед|след обяд|след обед"
-    ]
-    , prod = \tokens -> case tokens of
-        (h:m:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
-          hh <- getIntValue h
-          mm <- getIntValue m
-          tt . timeOfDayAMPM False $ hourMinute True hh mm
-        _ -> Nothing
-  }
+-- spelledOutPM :: Rule
+-- spelledOutPM = Rule
+--   { name = "spelled out numbers pm"
+--   , pattern =
+--     [ Predicate $ isIntegerBetween 1 12
+--     , Predicate $ isIntegerBetween 1 59
+--     , regex "вечерта|вечер|следобед|след обяд|след обед"
+--     ]
+--     , prod = \tokens -> case tokens of
+--         (h:m:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
+--           hh <- getIntValue h
+--           mm <- getIntValue m
+--           tt . timeOfDayAMPM False $ hourMinute True hh mm
+--         _ -> Nothing
+--   }
 
-spelledOutHourAM :: Rule
-spelledOutHourAM = Rule
-  { name = "spelled out numbers am"
-  , pattern =
-    [ Predicate $ isIntegerBetween 1 12
-    , regex "сутринта|сутрин|предиобед|преди обед|преди обяд"
-    ]
-    , prod = \tokens -> case tokens of
-        (h:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
-          hh <- getIntValue h
-          tt . timeOfDayAMPM True $ hour True hh
-        _ -> Nothing
-  }
+-- spelledOutHourAM :: Rule
+-- spelledOutHourAM = Rule
+--   { name = "spelled out numbers am"
+--   , pattern =
+--     [ Predicate $ isIntegerBetween 1 12
+--     , regex "сутринта|сутрин|предиобед|преди обед|преди обяд"
+--     ]
+--     , prod = \tokens -> case tokens of
+--         (h:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
+--           hh <- getIntValue h
+--           tt . timeOfDayAMPM True $ hour True hh
+--         _ -> Nothing
+--   }
 
-spelledOutHourPM :: Rule
-spelledOutHourPM = Rule
-  { name = "spelled out numbers pm"
-  , pattern =
-    [ Predicate $ isIntegerBetween 1 12
-    , regex "вечерта|вечер|следобед|след обяд|след обед"
-    ]
-    , prod = \tokens -> case tokens of
-        (h:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
-          hh <- getIntValue h
-          tt . timeOfDayAMPM False $ hour True hh
-        _ -> Nothing
-  }
+-- spelledOutHourPM :: Rule
+-- spelledOutHourPM = Rule
+--   { name = "spelled out numbers pm"
+--   , pattern =
+--     [ Predicate $ isIntegerBetween 1 12
+--     , regex "вечерта|вечер|следобед|след обяд|след обед"
+--     ]
+--     , prod = \tokens -> case tokens of
+--         (h:Token RegexMatch (GroupMatch (_:ap:_)):_) -> do
+--           hh <- getIntValue h
+--           tt . timeOfDayAMPM False $ hour True hh
+--         _ -> Nothing
+--   }
 
 -- ruleMilitarySpelledOutAMPM2 :: Rule
 -- ruleMilitarySpelledOutAMPM2 = Rule
@@ -790,6 +887,63 @@ ruleHONumeral = Rule
         if isLatent
           then tt . mkLatent $ hourMinute is12H hours n
           else tt $ hourMinute is12H hours n
+      _ -> Nothing
+  }
+
+  -- ruleInDurationAtTime :: Rule
+-- ruleInDurationAtTime = Rule
+--   { name = "in <duration> at <time-of-day>"
+--   , pattern =
+--     [ regex "in"
+--     , Predicate $ isDurationGreaterThan TG.Hour
+--     , regex "at"
+--     , Predicate isATimeOfDay
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (_:Token Duration dd:_:Token Time td:_) ->
+--         Token Time <$> intersect td (inDurationInterval dd)
+--       _ -> Nothing
+--   }
+
+ruleHODuration :: Rule
+ruleHODuration = Rule
+  { name = "<hour-of-day> and <duration>"
+  , pattern =
+    [ Predicate isAnHourOfDay
+    , regex "и"
+    , Predicate $ isDurationLessThan TG.Hour
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time td:
+       _:
+       Token Duration dd:
+       _) -> do
+        -- Token Time <$> intersect td (inDurationInterval dd)
+        tt $ durationAfter dd td
+        -- if isLatent
+        --   then tt . mkLatent $ hourMinute is12H hours n
+        --   else tt $ hourMinute is12H hours n
+      _ -> Nothing
+  }
+
+ruleHODurationBefore :: Rule
+ruleHODurationBefore = Rule
+  { name = "<hour-of-day> без <duration>"
+  , pattern =
+    [ Predicate isAnHourOfDay
+    , regex "без"
+    , Predicate $ isDurationLessThan TG.Hour
+    ]
+  , prod = \tokens -> case tokens of
+      (Token Time td:
+        _:
+        Token Duration dd:
+        _) -> do
+        -- Token Time <$> intersect td (inDurationInterval dd)
+        tt $ durationBefore dd td
+        -- if isLatent
+        --   then tt . mkLatent $ hourMinute is12H hours n
+        --   else tt $ hourMinute is12H hours n
       _ -> Nothing
   }
 
@@ -913,7 +1067,7 @@ ruleMMYYYY :: Rule
 ruleMMYYYY = Rule
   { name = "mm.yyyy"
   , pattern =
-    [ regex "(0?[1-9]|1[0-2])[/\\-\\.](\\d{4})"
+    [ regex "(0?[1-9]|1[0-2])[/\\-\\.](\\d{4})(г\\.?)?"
     ]
   , prod = \case
       (Token RegexMatch (GroupMatch (mm:yy:_)):_) -> do
@@ -956,7 +1110,7 @@ ruleDDMMYYYY :: Rule
 ruleDDMMYYYY = Rule
   { name = "dd-mm-yyyy"
   , pattern =
-    [ regex "(3[01]|[12]\\d|0?[1-9])[\\.\\/\\-](0?[1-9]|1[0-2])[\\.\\/\\-](\\d{2,4})"
+    [ regex "(3[01]|[12]\\d|0?[1-9])[\\.\\/\\-](0?[1-9]|1[0-2])[\\.\\/\\-](\\d{2,4})(г\\.?)?"
     ]
   , prod = \case
       (Token RegexMatch (GroupMatch (dd:mm:yy:_)):_) -> do
@@ -996,25 +1150,34 @@ rulePartOfDays :: Rule
 rulePartOfDays = Rule
   { name = "part of days"
   , pattern =
-    [ regex "(сутрин|сутринта|на обяд|наобед|следобед|след обед|след обяд|вечер|вечерта|привечер|нощем|нощта|деня)"
+    [ regex "(сутрин(та)?|(преди|на)\\s?об[ея]д|след\\s?об[ея]д|вечер(та)?|привечер|нощ(ем|та)|денят?|денем)"
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):_) -> do
         let (start, end) = case Text.toLower match of
               "сутрин"     -> (hour False 4, hour False 12)
               "сутринта"   -> (hour False 4, hour False 12)
-              "на обяд"      -> (hour False 11, hour False 14)
-              "надобед"   -> (hour False 11, hour False 14)
-              "следобед"   -> (hour False 12, hour False 18)
-              "след обед"   -> (hour False 12, hour False 18)
-              "след обяд"   -> (hour False 12, hour False 18)
+              "на обяд"    -> (hour False 11, hour False 14)
+              "на обед"    -> (hour False 11, hour False 14)
+              "наобед"     -> (hour False 11, hour False 14)
+              "наобяд"     -> (hour False 11, hour False 14)
+              "предиобед"  -> (hour False 6, hour False 12)
+              "предиобяд"  -> (hour False 6, hour False 12)
+              "преди обед" -> (hour False 6, hour False 12)
+              "преди обяд" -> (hour False 6, hour False 12)
+              "следобед"   -> (hour False 12, hour False 19)
+              "следобяд"   -> (hour False 12, hour False 19)
+              "след обед"  -> (hour False 12, hour False 19)
+              "след обяд"  -> (hour False 12, hour False 19)
               "вечер"      -> (hour False 18, hour False 0)
               "вечерта"    -> (hour False 18, hour False 0)
               "привечер"   -> (hour False 18, hour False 0)
               -- TODO: Does this work?
               "нощем"      -> (hour False 22, hour False 5)
               "нощта"      -> (hour False 22, hour False 5)
-              "деня"  -> (hour False 7, hour False 22)
+              "деня"       -> (hour False 7, hour False 22)
+              "денят"      -> (hour False 7, hour False 22)
+              "денем"      -> (hour False 7, hour False 22)
               _            -> (hour False 12, hour False 19)
         td <- interval TTime.Open start end
         tt . partOfDay $ mkLatent td
@@ -1071,13 +1234,13 @@ ruleAfterPartofday :: Rule
 ruleAfterPartofday = Rule
   { name = "after lunch/work/school"
   , pattern =
-    [ regex "след\\s?(обяд|обед|работа|училище)"
+    [ regex "след (закуска|вечеря|работа|училище)"
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):_) -> do
         (start, end) <- case Text.toLower match of
-          "обед"    -> Just (hour False 13, hour False 17)
-          "обяд"    -> Just (hour False 13, hour False 17)
+          "закуска" -> Just (hour False 7, hour False 9)
+          "вечеря"  -> Just (hour False 18, hour False 20)
           "работа"  -> Just (hour False 17, hour False 21)
           "училище" -> Just (hour False 15, hour False 21)
           _         -> Nothing
@@ -1099,8 +1262,8 @@ ruleTimePOD = Rule
       _ -> Nothing
   }
 
-ruleTimePOD :: Rule
-ruleTimePOD = Rule
+ruleTimeDuringPOD :: Rule
+ruleTimeDuringPOD = Rule
   { name = "<time> during <part-of-day>"
   , pattern =
     [ dimension Time
@@ -1157,21 +1320,33 @@ ruleSeason :: Rule
 ruleSeason = Rule
   { name = "last|this|next <season>"
   , pattern =
-    [ regex "(този|текущия|следващия|следващите|предния|предните|миналия|миналите|предходния|предходните) seasons?"
+    [ regex "(т[оа]зи|текущ(ият?|ите|ата)|следващ(ият?|ите|ата)|предн(ият?|ите|ата)|минал(ият?|ите|ата)|предходн(ият?|ите|ата)) seasons?"
     ]
   , prod = \case
       (Token RegexMatch (GroupMatch (match:_)):_) -> do
         n <- case Text.toLower match of
                "този" -> Just 0
+               "тази" -> Just 0
                "текущия" -> Just 0
+               "текущият" -> Just 0
+               "текущата" -> Just 0
+               "текущите" -> Just 0
                "миналия" -> Just (-1)
+               "миналият" -> Just (-1)
+               "миналата" -> Just (-1)
                "миналите" -> Just (-1)
                "предния" -> Just (-1)
+               "предният" -> Just (-1)
+               "предната" -> Just (-1)
                "предните" -> Just (-1)
                "предходния" -> Just (-1)
+               "предходният" -> Just (-1)
                "предходните" -> Just (-1)
+               "предходната" -> Just (-1)
                "следващия" -> Just 1
+               "следващият" -> Just 1
                "следващите" -> Just 1
+               "следващата" -> Just 1
                _ -> Nothing
         tt $ predNth n False season
       _ -> Nothing
@@ -1395,7 +1570,7 @@ ruleIntervalTODDash = Rule
   { name = "<time-of-day> - <time-of-day> (interval)"
   , pattern =
     [ Predicate $ and . sequence [isNotLatent, isATimeOfDay]
-    , regex "\\-|:|до"
+    , regex "\\-|до"
     , Predicate isATimeOfDay
     ]
   , prod = \tokens -> case tokens of
@@ -2089,37 +2264,50 @@ ruleCycleThisLastNext :: Rule
 ruleCycleThisLastNext = Rule
   { name = "this|last|next <cycle>"
   , pattern =
-    [ regex "(този|текущ(ия|ият|ите|ата)|идващ(ия|ият|ите|ата)|следващ(ия|ият|ите|ата)|последн(ия|ият|ите|ата)|минал(ия|ият|ите|ата)|предходн(ия|ият|ите|ата))"
+    [ regex "(т[оа]зи|текущ(ия|ият|ите|ата)|идващ(ия|ият|ите|ата)|(по-)следващ(ия|ият|ите|ата)|последн(ия|ият|ите|ата)|минал(ия|ият|ите|ата)|пред(ход)?н(ия|ият|ите|ата)|друг(ия|ият|ите|ата))"
     , dimension TimeGrain
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):Token TimeGrain grain:_) ->
         case Text.toLower match of
-          "този"        -> tt $ cycleNth grain 0
-          "идващия"     -> tt $ cycleNth grain 0
-          "идващият"    -> tt $ cycleNth grain 0
-          "идващите"    -> tt $ cycleNth grain 0
-          "идващата"    -> tt $ cycleNth grain 0
-          "текущия"     -> tt $ cycleNth grain 0
-          "текущият"    -> tt $ cycleNth grain 0
-          "текущите"    -> tt $ cycleNth grain 0
-          "текущата"    -> tt $ cycleNth grain 0
-          "последния"   -> tt . cycleNth grain $ - 1
-          "последният"  -> tt . cycleNth grain $ - 1
-          "последните"  -> tt . cycleNth grain $ - 1
-          "последната"  -> tt . cycleNth grain $ - 1
-          "миналия"     -> tt . cycleNth grain $ - 1
-          "миналият"    -> tt . cycleNth grain $ - 1
-          "миналите"    -> tt . cycleNth grain $ - 1
-          "миналата"    -> tt . cycleNth grain $ - 1
-          "предходния"  -> tt . cycleNth grain $ - 1
-          "предходният" -> tt . cycleNth grain $ - 1
-          "предходните" -> tt . cycleNth grain $ - 1
-          "предходната" -> tt . cycleNth grain $ - 1
-          "следващия"   -> tt $ cycleNth grain 1
-          "следващият"  -> tt $ cycleNth grain 1
-          "следващите"  -> tt $ cycleNth grain 1
-          "следващата"  -> tt $ cycleNth grain 1
+          "тази"          -> tt $ cycleNth grain 0
+          "този"          -> tt $ cycleNth grain 0
+          "идващия"       -> tt $ cycleNth grain 0
+          "идващият"      -> tt $ cycleNth grain 0
+          "идващите"      -> tt $ cycleNth grain 0
+          "идващата"      -> tt $ cycleNth grain 0
+          "текущия"       -> tt $ cycleNth grain 0
+          "текущият"      -> tt $ cycleNth grain 0
+          "текущите"      -> tt $ cycleNth grain 0
+          "текущата"      -> tt $ cycleNth grain 0
+          "последния"     -> tt . cycleNth grain $ - 1
+          "последният"    -> tt . cycleNth grain $ - 1
+          "последните"    -> tt . cycleNth grain $ - 1
+          "последната"    -> tt . cycleNth grain $ - 1
+          "миналия"       -> tt . cycleNth grain $ - 1
+          "миналият"      -> tt . cycleNth grain $ - 1
+          "миналите"      -> tt . cycleNth grain $ - 1
+          "миналата"      -> tt . cycleNth grain $ - 1
+          "предходния"    -> tt . cycleNth grain $ - 1
+          "предходният"   -> tt . cycleNth grain $ - 1
+          "предходните"   -> tt . cycleNth grain $ - 1
+          "предходната"   -> tt . cycleNth grain $ - 1
+          "предния"       -> tt . cycleNth grain $ - 1
+          "предният"      -> tt . cycleNth grain $ - 1
+          "предните"      -> tt . cycleNth grain $ - 1
+          "предната"      -> tt . cycleNth grain $ - 1
+          "следващия"     -> tt $ cycleNth grain 1
+          "следващият"    -> tt $ cycleNth grain 1
+          "следващите"    -> tt $ cycleNth grain 1
+          "следващата"    -> tt $ cycleNth grain 1
+          "другия"        -> tt $ cycleNth grain 1
+          "другият"       -> tt $ cycleNth grain 1
+          "другите"       -> tt $ cycleNth grain 1
+          "другата"       -> tt $ cycleNth grain 1
+          "по-следващия"  -> tt $ cycleNth grain 2
+          "по-следващият" -> tt $ cycleNth grain 2
+          "по-следващите" -> tt $ cycleNth grain 2
+          "по-следващата" -> tt $ cycleNth grain 2
           _ -> Nothing
       _ -> Nothing
   }
@@ -2578,33 +2766,39 @@ rules :: [Rule]
 rules =
   [ ruleIntersect
   , ruleIntersectOf
-  , ruleHourAndMinute
-  , ruleHourAndMinuteTOD
   , ruleIntersectYear
-  , ruleAbsorbOnDay
+  , ruleOnDay
   , ruleAbsorbOnADOW
   , ruleAbsorbInMonthYear
   , ruleAbsorbCommaTOD
+  , ruleThisDOW
   , ruleNextDOW
+  , ruleNext2DOW
   , ruleNextTime
+  , ruleNext2Time
   , ruleThisTime
   , ruleLastTime
-  , ruleTimeBeforeLastAfterNext
+  -- , ruleTimeBeforeLastAfterNext
   , ruleLastDOWOfTime
   , ruleLastCycleOfTime
   , ruleLastNight
   , ruleLastWeekendOfMonth
   , ruleNthTimeOfTime
-  , ruleTheNthTimeOfTime
+  -- , ruleTheNthTimeOfTime
   , ruleNthTimeAfterTime
 --   , ruleTheNthTimeAfterTime
   , ruleNDOWFromTime
   , ruleYearLatent
+  , ruleYear
+  , ruleNextYear
+  , ruleNext2Year
 --   , ruleYearADBC
 --   , ruleTheDOMNumeral
-  , ruleTheDOMOrdinal
+  -- , ruleTheDOMOrdinal
   , ruleDOMLatent
   , ruleNamedDOMOrdinal
+  , ruleNamedDOMOrdinal2
+  , ruleNamedDOMOrdinal3
   , ruleMonthDOMNumeral
   , ruleDOMMonth
 --   , ruleDOMOfMonth
@@ -2615,20 +2809,22 @@ rules =
   , ruleAtTOD
   , ruleOClock
   , ruleHHMM
-  , ruleHHhMM
+  , ruleHHh
 --   , ruleHHMMLatent
   , ruleHHMMSS
-  , ruleAM
-  , rulePM
-  , ruleHourAM
-  , ruleHourPM
-  , spelledOutAM
-  , spelledOutPM
-  , spelledOutHourAM
-  , spelledOutHourPM
+  -- , ruleAM
+  -- , rulePM
+  -- , ruleHourAM
+  -- , ruleHourPM
+  -- , spelledOutAM
+  -- , spelledOutPM
+  -- , spelledOutHourAM
+  -- , spelledOutHourPM
   -- , ruleMilitarySpelledOutAMPM2
   -- , ruleTODAMPM
   , ruleHONumeral
+  , ruleHODuration
+  , ruleHODurationBefore
   , ruleHODHalf
   -- , ruleHODQuarter
   , ruleNumeralToHOD
@@ -2651,6 +2847,7 @@ rules =
   , ruleTonight
   , ruleAfterPartofday
   , ruleTimePOD
+  , ruleTimeDuringPOD
   , rulePODofTime
   , ruleWeekend
   , ruleWeek

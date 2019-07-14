@@ -20,14 +20,14 @@ import Duckling.TimeGrain.Types
 import Duckling.Types
 
 grains :: [(Text, String, Grain)]
-grains = [ ("second (grain) ", "сек(унд(а|и))?",               Second)
-         , ("minute (grain)" , "мин(ут(а|и))?",                Minute)
-         , ("hour (grain)"   , "ч(ас(ове(те)?|а|ът)?)?",       Hour)
-         , ("day (grain)"    , "ден(а|я(т)?)?|дни(те)?",       Day)
-         , ("week (grain)"   , "седмица(та)?|седмици(те)?",    Week)
-         , ("month (grain)"  , "месец(и(те)?|а|ът)?",          Month)
-         , ("quarter (grain)", "тримесечи(я|е(то|та)?)",       Quarter)
-         , ("year (grain)"   , "г(од(ин(а(та)?|и(те)?))?)?",   Year)
+grains = [ ("second (grain) ", "сек(\\.|унд(а|и))?",                    Second)
+         , ("minute (grain)" , "мин(\\.|ут(а|и))?",                     Minute)
+         , ("hour (grain)"   , "ч(\\.|ас(ове(те)?|а|ът)?)?",            Hour)
+         , ("day (grain)"    , "ден(а|я(т)?)?|дни(те)?",                Day)
+         , ("week (grain)"   , "седмица(та)?|седмици(те)?",             Week)
+         , ("month (grain)"  , "месец(и(те)?|а|ът)?",                   Month)
+         , ("quarter (grain)", "тримесечи(я|е(то|та)?)",                Quarter)
+         , ("year (grain)"   , "г(\\.|од(\\.|(ин(а(та)?|и(те)?))?)?)?", Year)
          ]
 
 rules :: [Rule]

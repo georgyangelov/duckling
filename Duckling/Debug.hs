@@ -39,6 +39,9 @@ import Duckling.Types
 debug :: Locale -> Text -> [Some Dimension] -> IO [Entity]
 debug locale = debugCustom testContext {locale = locale} testOptions
 
+debugLatent :: Locale -> Text -> [Some Dimension] -> IO [Entity]
+debugLatent locale = debugCustom testContext {locale = locale} testOptions {withLatent = True}
+
 allParses :: Locale -> Text -> [Some Dimension] -> IO [Entity]
 allParses l sentence targets = debugTokens sentence $ parses l sentence targets
 

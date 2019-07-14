@@ -101,9 +101,21 @@ ruleOrdinalDigits = Rule
       _ -> Nothing
   }
 
+ruleOrdinalDigitsDot :: Rule
+ruleOrdinalDigitsDot = Rule
+  { name = "ordinal (digit .)"
+  , pattern =
+    [ regex "0*(\\d+)\\."
+    ]
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_)):_) -> ordinal <$> parseInt match
+      _ -> Nothing
+  }
+
 rules :: [Rule]
 rules =
   [ ruleOrdinal
   , ruleOrdinalDigits
+  , ruleOrdinalDigitsDot
   , ruleOrdinalsFirstth
   ]

@@ -6,6 +6,7 @@
 
 
 {-# LANGUAGE GADTs #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NoRebindableSyntax #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -13,6 +14,7 @@ module Duckling.Duration.BG.Rules
   ( rules
   ) where
 
+import Data.Semigroup ((<>))
 import Data.String
 import Data.Text (Text)
 import Prelude
@@ -26,7 +28,9 @@ import Duckling.Duration.Types (DurationData (DurationData))
 import Duckling.Regex.Types
 import Duckling.Types
 import Duckling.TimeGrain.Types
+import qualified Duckling.Duration.Types as TDuration
 import qualified Duckling.Numeral.Types as TNumeral
+import qualified Duckling.TimeGrain.Types as TG
 
 ruleHalves :: Rule
 ruleHalves = Rule
@@ -121,9 +125,28 @@ rulePositiveDuration = Rule
       _ -> Nothing
   }
 
+ruleCompositeDuration :: Rule
+ruleCompositeDuration = Rule
+  { name = "composite <duration> (with ,/and)"
+  , pattern =
+    [ Predicate isNatural
+    , dimension TimeGrain
+    , regex ",|и"
+    , dimension Duration
+    ]
+  , prod = \case
+      (Token Numeral NumeralData{TNumeral.value = v}:
+       Token TimeGrain g:
+       _:
+       Token Duration dd@DurationData{TDuration.grain = dg}:
+       _) | g > dg -> Just . Token Duration $ duration g (floor v) <> dd
+      _ -> Nothing
+  }
+
 rules :: [Rule]
 rules =
   [ ruleDurationAndAHalf
+  , ruleCompositeDuration
   , ruleGrainAndAHalf
   , rulePositiveDuration
   , ruleDurationPrecision
