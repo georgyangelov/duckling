@@ -14,6 +14,7 @@ module Duckling.Rules.BG
   , localeRules
   ) where
 
+import Debug.Trace
 import Duckling.Dimensions.Types
 import Duckling.Locale
 import Duckling.Types
@@ -21,6 +22,7 @@ import qualified Duckling.Numeral.BG.Rules as Numeral
 import qualified Duckling.AmountOfMoney.BG.Rules as AmountOfMoney
 import qualified Duckling.Distance.BG.Rules as Distance
 import qualified Duckling.Duration.BG.Rules as Duration
+import qualified Duckling.Time.BG.Rules as Time
 import qualified Duckling.TimeGrain.BG.Rules as TimeGrain
 import qualified Duckling.Ordinal.BG.Rules as Ordinal
 
@@ -43,7 +45,7 @@ langRules (This PhoneNumber) = []
 langRules (This Quantity) = []
 langRules (This RegexMatch) = []
 langRules (This Temperature) = []
-langRules (This Time) = []
+langRules (This Time) = traceShow Time.rules Time.rules
 langRules (This TimeGrain) = TimeGrain.rules
 langRules (This Url) = []
 langRules (This Volume) = []
