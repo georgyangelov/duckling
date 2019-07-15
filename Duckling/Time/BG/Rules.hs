@@ -133,24 +133,50 @@ ruleInstants = mkRuleInstants
   , ("today"        , TG.Day   , 0 , "днес|(днешния ден)"                                )
   , ("tomorrow"     , TG.Day   , 1 , "утре|(утрешния ден)"                               )
   , ("yesterday"    , TG.Day   , -1, "вчера"                                             )
-  , ("tomorrow+1"   , TG.Day   , 2 , "вдругиден|другиден"                                )
-  , ("tomorrow+2"   , TG.Day   , 3 , "по-другиден"                                       )
+  , ("tomorrow+1"   , TG.Day   , 2 , "вдругиден|другиден|в другиден"                     )
+  , ("tomorrow+2"   , TG.Day   , 3 , "по-в?другиден"                                     )
   ]
 
 ruleNow :: Rule
 ruleNow = Rule
   { name = "now"
   , pattern =
-    [ regex "сега|точно сега|в момента"
+    [ regex "(точно )?сега|в момента|в този момент"
     ]
   , prod = \_ -> tt now
+  }
+
+ruleLastDOW :: Rule
+ruleLastDOW = Rule
+  { name = "last <day-of-week>"
+  , pattern =
+    [ regex "минал(ият?|ата)"
+    , Predicate isADayOfWeek
+    ]
+  , prod = \tokens -> case tokens of
+      (_:Token Time td:_) ->
+        Token Time <$> intersect td (cycleNth TG.Week (- 1))
+      _ -> Nothing
   }
 
 ruleThisDOW :: Rule
 ruleThisDOW = Rule
   { name = "this <day-of-week>"
   , pattern =
-    [ regex "т[оа]зи|идващ(ият?|ата)"
+    [ regex "т[оа]зи"
+    , Predicate isADayOfWeek
+    ]
+  , prod = \tokens -> case tokens of
+      (_:Token Time td:_) ->
+        Token Time <$> intersect td (cycleNth TG.Week 0)
+      _ -> Nothing
+  }
+
+ruleUpcomingDOW :: Rule
+ruleUpcomingDOW = Rule
+  { name = "upcoming <day-of-week>"
+  , pattern =
+    [ regex "идващ(ият?|ата)|идн(ият?|ата)"
     , Predicate isADayOfWeek
     ]
   , prod = \tokens -> case tokens of
@@ -168,20 +194,20 @@ ruleNextDOW = Rule
     ]
   , prod = \tokens -> case tokens of
       (_:Token Time td:_) ->
-        tt $ predNth 1 False td
+        Token Time <$> intersect td (cycleNth TG.Week 1)
       _ -> Nothing
   }
 
 ruleNext2DOW :: Rule
 ruleNext2DOW = Rule
-  { name = "next <day-of-week>"
+  { name = "next2 <day-of-week>"
   , pattern =
     [ regex "по-следващ(ият?|ата)"
     , Predicate isADayOfWeek
     ]
   , prod = \tokens -> case tokens of
       (_:Token Time td:_) ->
-        tt $ predNth 2 False td
+        Token Time <$> intersect td (cycleNth TG.Week 2)
       _ -> Nothing
   }
 
@@ -248,15 +274,14 @@ ruleLastWeekendOfMonth = Rule
 -- TODO
 -- ruleTimeBeforeLastAfterNext :: Rule
 -- ruleTimeBeforeLastAfterNext = Rule
---   { name = "<time> before last|after next"
+--   { name = "<time> before last"
 --   , pattern =
 --     [ dimension Time
---     , regex "(преди последния|преди последната|след следващия|след следващата)"
+--     , regex "предпоследн(ият?|ата)"
 --     ]
 --   , prod = \tokens -> case tokens of
 --       (Token Time td:Token RegexMatch (GroupMatch (match:_)):_) ->
---         -- TODO
---         tt $ predNth 1 (or [(Text.toLower match == "след следващия"), (Text.toLower match == "след следващата")]) td
+--         tt $ predNth 1 False td
 --       _ -> Nothing
 --   }
 
@@ -372,7 +397,7 @@ ruleNDOWFromTime = Rule
   , pattern =
     [ dimension Numeral
     , Predicate isADayOfWeek
-    , regex "след"
+    , regex "след|от"
     , dimension Time
     ]
   , prod = \tokens -> case tokens of
@@ -1135,16 +1160,16 @@ ruleDDMMYYYY = Rule
 --       _ -> Nothing
 --   }
 
-ruleNoon :: Rule
-ruleNoon = Rule
-  { name = "noon"
-  , pattern =
-    [ regex "(на обяд)|(на обед)|наобед|обяд"
-    ]
-  , prod = \case
-      (_:_) -> tt (hour False 12)
-      _ -> Nothing
-  }
+-- ruleNoon :: Rule
+-- ruleNoon = Rule
+--   { name = "noon"
+--   , pattern =
+--     [ regex "(на обяд)|(на обед)|наобед|обяд"
+--     ]
+--   , prod = \case
+--       (_:_) -> tt (hour False 12)
+--       _ -> Nothing
+--   }
 
 rulePartOfDays :: Rule
 rulePartOfDays = Rule
@@ -1210,7 +1235,7 @@ rulePODThis :: Rule
 rulePODThis = Rule
   { name = "this <part-of-day>"
   , pattern =
-    [ regex "този|тази"
+    [ regex "т[оа]зи"
     , Predicate isAPartOfDay
     ]
   , prod = \tokens -> case tokens of
@@ -1219,16 +1244,16 @@ rulePODThis = Rule
       _ -> Nothing
   }
 
-ruleTonight :: Rule
-ruleTonight = Rule
-  { name = "tonight"
-  , pattern = [regex "тази вечер"]
-  , prod = \tokens -> case tokens of
-      (_:_) -> do
-        evening <- interval TTime.Open (hour False 20) (hour False 0)
-        Token Time . partOfDay . notLatent <$> intersect today evening
-      _ -> Nothing
-  }
+-- ruleTonight :: Rule
+-- ruleTonight = Rule
+--   { name = "tonight"
+--   , pattern = [regex "тази вечер"]
+--   , prod = \tokens -> case tokens of
+--       (_:_) -> do
+--         evening <- interval TTime.Open (hour False 20) (hour False 0)
+--         Token Time . partOfDay . notLatent <$> intersect today evening
+--       _ -> Nothing
+--   }
 
 ruleAfterPartofday :: Rule
 ruleAfterPartofday = Rule
@@ -1316,41 +1341,41 @@ ruleWeek = Rule
      _ -> Nothing
  }
 
-ruleSeason :: Rule
-ruleSeason = Rule
-  { name = "last|this|next <season>"
-  , pattern =
-    [ regex "(т[оа]зи|текущ(ият?|ите|ата)|следващ(ият?|ите|ата)|предн(ият?|ите|ата)|минал(ият?|ите|ата)|предходн(ият?|ите|ата)) seasons?"
-    ]
-  , prod = \case
-      (Token RegexMatch (GroupMatch (match:_)):_) -> do
-        n <- case Text.toLower match of
-               "този" -> Just 0
-               "тази" -> Just 0
-               "текущия" -> Just 0
-               "текущият" -> Just 0
-               "текущата" -> Just 0
-               "текущите" -> Just 0
-               "миналия" -> Just (-1)
-               "миналият" -> Just (-1)
-               "миналата" -> Just (-1)
-               "миналите" -> Just (-1)
-               "предния" -> Just (-1)
-               "предният" -> Just (-1)
-               "предната" -> Just (-1)
-               "предните" -> Just (-1)
-               "предходния" -> Just (-1)
-               "предходният" -> Just (-1)
-               "предходните" -> Just (-1)
-               "предходната" -> Just (-1)
-               "следващия" -> Just 1
-               "следващият" -> Just 1
-               "следващите" -> Just 1
-               "следващата" -> Just 1
-               _ -> Nothing
-        tt $ predNth n False season
-      _ -> Nothing
-  }
+-- ruleSeason :: Rule
+-- ruleSeason = Rule
+--   { name = "last|this|next <season>"
+--   , pattern =
+--     [ regex "(т[оа]зи|текущ(ият?|ите|ата)|следващ(ият?|ите|ата)|предн(ият?|ите|ата)|минал(ият?|ите|ата)|предходн(ият?|ите|ата)) seasons?"
+--     ]
+--   , prod = \case
+--       (Token RegexMatch (GroupMatch (match:_)):_) -> do
+--         n <- case Text.toLower match of
+--                "този" -> Just 0
+--                "тази" -> Just 0
+--                "текущия" -> Just 0
+--                "текущият" -> Just 0
+--                "текущата" -> Just 0
+--                "текущите" -> Just 0
+--                "миналия" -> Just (-1)
+--                "миналият" -> Just (-1)
+--                "миналата" -> Just (-1)
+--                "миналите" -> Just (-1)
+--                "предния" -> Just (-1)
+--                "предният" -> Just (-1)
+--                "предната" -> Just (-1)
+--                "предните" -> Just (-1)
+--                "предходния" -> Just (-1)
+--                "предходният" -> Just (-1)
+--                "предходните" -> Just (-1)
+--                "предходната" -> Just (-1)
+--                "следващия" -> Just 1
+--                "следващият" -> Just 1
+--                "следващите" -> Just 1
+--                "следващата" -> Just 1
+--                _ -> Nothing
+--         tt $ predNth n False season
+--       _ -> Nothing
+--   }
 
 ruleSeasons :: [Rule]
 ruleSeasons = mkRuleSeasons
@@ -1570,6 +1595,7 @@ ruleIntervalTODDash = Rule
   { name = "<time-of-day> - <time-of-day> (interval)"
   , pattern =
     [ Predicate $ and . sequence [isNotLatent, isATimeOfDay]
+    -- , regex "\\-|до"
     , regex "\\-|до"
     , Predicate isATimeOfDay
     ]
@@ -1636,17 +1662,17 @@ ruleIntervalTODBetween = Rule
       _ -> Nothing
   }
 
-ruleIntervalBy :: Rule
-ruleIntervalBy = Rule
-  { name = "by <time>"
-  , pattern =
-    [ regex "до"
-    , dimension Time
-    ]
-  , prod = \tokens -> case tokens of
-      (_:Token Time td:_) -> Token Time <$> interval TTime.Open now td
-      _ -> Nothing
-  }
+-- ruleIntervalBy :: Rule
+-- ruleIntervalBy = Rule
+--   { name = "by <time>"
+--   , pattern =
+--     [ regex "до"
+--     , dimension Time
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (_:Token Time td:_) -> Token Time <$> interval TTime.Open now td
+--       _ -> Nothing
+--   }
 
 ruleIntervalByTheEndOf :: Rule
 ruleIntervalByTheEndOf = Rule
@@ -1733,17 +1759,27 @@ ruleMonths = mkRuleMonthsWithLatent
 --       _ -> Nothing
 --   }
 
+ruleThisMonth :: Rule
+ruleThisMonth = Rule
+  { name = "the month"
+  , pattern =
+    [ regex "месец(а|ът)"
+    ]
+  , prod = \_ -> tt $ cycleNth TG.Month 0
+  }
+
 ruleEndOrBeginningOfMonth :: Rule
 ruleEndOrBeginningOfMonth = Rule
   { name = "at the beginning|end of <named-month>"
   , pattern =
-    [ regex "(в )?(началото|края|краят) на"
+    [ regex "(в )?(началото|краят?|средата) на"
     , Predicate isAMonth
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (_:match:_)):Token Time td:_) -> do
         (sd, ed) <- case Text.toLower match of
           "началото" -> Just (1, 10)
+          "средата"  -> Just (10, 21)
           "края"     -> Just (21, -1)
           "краят"    -> Just (21, -1)
           _          -> Nothing
@@ -1789,7 +1825,7 @@ ruleEndOrBeginningOfYear :: Rule
 ruleEndOrBeginningOfYear = Rule
   { name = "at the beginning|end of <year>"
   , pattern =
-    [ regex "(в )? (началото|края|краят) на"
+    [ regex "(в )?(началото|краят?) на"
     , Predicate $ isGrainOfTime TG.Year
     ]
   , prod = \tokens -> case tokens of
@@ -1834,17 +1870,48 @@ ruleBeginningOfYear = Rule
       Token Time <$> interval TTime.Open start end
   }
 
+ruleBeginningOfWeek :: Rule
+ruleBeginningOfWeek = Rule
+  { name = "beginning of week"
+  , pattern = [ regex "(в )?(началото на седмицата)" ]
+  , prod = \_ -> do
+      start <- intersect (dayOfWeek 1) $ cycleNth TG.Week 0
+      end <- intersect (dayOfWeek 3) $ cycleNth TG.Week 0
+      Token Time <$> interval TTime.Open start end
+  }
+
+ruleMiddleOfWeek :: Rule
+ruleMiddleOfWeek = Rule
+  { name = "middle of week"
+  , pattern = [ regex "(в )?(средата на седмицата)" ]
+  , prod = \_ -> do
+      start <- intersect (dayOfWeek 3) $ cycleNth TG.Week 0
+      end <- intersect (dayOfWeek 5) $ cycleNth TG.Week 0
+      Token Time <$> interval TTime.Open start end
+  }
+
+ruleEndingOfWeek :: Rule
+ruleEndingOfWeek = Rule
+  { name = "end of week"
+  , pattern = [ regex "(в )?(краят? на седмицата)" ]
+  , prod = \_ -> do
+      start <- intersect (dayOfWeek 5) $ cycleNth TG.Week 0
+      end <- intersect (dayOfWeek 7) $ cycleNth TG.Week 0
+      Token Time <$> interval TTime.Open start end
+  }
+
 ruleEndOrBeginningOfWeek :: Rule
 ruleEndOrBeginningOfWeek = Rule
   { name = "at the beginning|end of <week>"
   , pattern =
-    [ regex "(в |към )?(началото|края) на"
+    [ regex "(в |към )?(началото|средата|края) на"
     , Predicate $ isGrainOfTime TG.Week
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (_:match1:_)):Token Time td:_) -> do
         (sd, ed) <- case Text.toLower match1 of
           "началото" -> Just (1, 3)
+          "средата"  -> Just (3, 5)
           "края"     -> Just (5, 7)
           _          -> Nothing
         start <- intersect td $ dayOfWeek sd
@@ -2264,12 +2331,13 @@ ruleCycleThisLastNext :: Rule
 ruleCycleThisLastNext = Rule
   { name = "this|last|next <cycle>"
   , pattern =
-    [ regex "(т[оа]зи|текущ(ия|ият|ите|ата)|идващ(ия|ият|ите|ата)|(по-)следващ(ия|ият|ите|ата)|последн(ия|ият|ите|ата)|минал(ия|ият|ите|ата)|пред(ход)?н(ия|ият|ите|ата)|друг(ия|ият|ите|ата))"
+    [ regex "(т[оа]зи|текущ(ия|ият|ите|ата)|идващ(ия|ият|ите|ата)|(по-)?следващ(ия|ият|ите|ата)|последн(ия|ият|ите|ата)|минал(ия|ият|ите|ата)|пред(ход)?н(ия|ият|ите|ата)|(по-)?друг(ия|ият|ите|ата))"
     , dimension TimeGrain
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):Token TimeGrain grain:_) ->
         case Text.toLower match of
+          -- TODO: Should this be cycleN or cycleNth? 'последната седмица' vs 'следващата'
           "тази"          -> tt $ cycleNth grain 0
           "този"          -> tt $ cycleNth grain 0
           "идващия"       -> tt $ cycleNth grain 0
@@ -2304,11 +2372,34 @@ ruleCycleThisLastNext = Rule
           "другият"       -> tt $ cycleNth grain 1
           "другите"       -> tt $ cycleNth grain 1
           "другата"       -> tt $ cycleNth grain 1
+          "по-другия"     -> tt $ cycleNth grain 2
+          "по-другият"    -> tt $ cycleNth grain 2
+          "по-другите"    -> tt $ cycleNth grain 2
+          "по-другата"    -> tt $ cycleNth grain 2
           "по-следващия"  -> tt $ cycleNth grain 2
           "по-следващият" -> tt $ cycleNth grain 2
           "по-следващите" -> tt $ cycleNth grain 2
           "по-следващата" -> tt $ cycleNth grain 2
           _ -> Nothing
+      _ -> Nothing
+  }
+
+ruleDurationLastNext :: Rule
+ruleDurationLastNext = Rule
+  { name = "last|past|next <duration>"
+  , pattern =
+    [ regex "(?:през )?(последн|предходн|(по-)?следващ|минал)(ия|ият|ите|ата)"
+    , dimension Duration
+    ]
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_:_)):
+        Token Duration DurationData{TDuration.grain, TDuration.value}:
+        _) -> case Text.toLower match of
+          "следващ"    -> tt $ cycleN True grain value
+          "предходн"   -> tt $ cycleN True grain (- value)
+          "последн"    -> tt $ cycleN True grain (- value)
+          "минал"      -> tt $ cycleN True grain (- value)
+          _            -> Nothing
       _ -> Nothing
   }
 
@@ -2513,10 +2604,11 @@ ruleCycleOrdinalQuarterYear = Rule
   , pattern =
     [ dimension Ordinal
     , Predicate $ isGrain TG.Quarter
+    , regex "на"
     , dimension Time
     ]
   , prod = \tokens -> case tokens of
-      (token:_:Token Time td:_) -> do
+      (token:_:_:Token Time td:_) -> do
         n <- getIntValue token
         tt $ cycleNthAfter False TG.Quarter (n - 1) td
       _ -> Nothing
@@ -2539,38 +2631,19 @@ ruleDurationInWithinAfter = Rule
       _ -> Nothing
   }
 
-ruleDurationLastNext :: Rule
-ruleDurationLastNext = Rule
-  { name = "last|past|next <duration>"
-  , pattern =
-    [ regex "(последн|предходн|следващ|минал)(ия|ият|ите|ата)"
-    , dimension Duration
-    ]
-  , prod = \tokens -> case tokens of
-      (Token RegexMatch (GroupMatch (match:_:_)):
-       Token Duration DurationData{TDuration.grain, TDuration.value}:
-       _) -> case Text.toLower match of
-         "следващ"  -> tt $ cycleN True grain value
-         "предходн" -> tt $ cycleN True grain (- value)
-         "последн"  -> tt $ cycleN True grain (- value)
-         "минал"    -> tt $ cycleN True grain (- value)
-         _          -> Nothing
-      _ -> Nothing
-  }
-
-ruleNDOWago :: Rule
-ruleNDOWago = Rule
-  { name = "<integer> <named-day> ago|back"
-  , pattern =
-    [ Predicate isNatural
-    , Predicate isADayOfWeek
-    , regex "по-рано"
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Numeral NumeralData{TNumeral.value = v}:Token Time td:_) ->
-        tt $ predNth (- (floor v)) False td
-      _ -> Nothing
-  }
+-- ruleNDOWago :: Rule
+-- ruleNDOWago = Rule
+--   { name = "<integer> <named-day> ago|back"
+--   , pattern =
+--     [ Predicate isNatural
+--     , Predicate isADayOfWeek
+--     , regex "по-рано"
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token Numeral NumeralData{TNumeral.value = v}:Token Time td:_) ->
+--         tt $ predNth (- (floor v)) False td
+--       _ -> Nothing
+--   }
 
 ruleDurationHenceAgo :: Rule
 ruleDurationHenceAgo = Rule
@@ -2681,19 +2754,19 @@ ruleIntervalForDurationFrom = Rule
       _ -> Nothing
 }
 
-ruleIntervalTimeForDuration :: Rule
-ruleIntervalTimeForDuration = Rule
-  { name = "<time> for <duration>"
-  , pattern =
-    [ Predicate isNotLatent
-    , regex "за"
-    , dimension Duration
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Time td1:_:Token Duration dd:_) ->
-        Token Time <$> interval TTime.Closed td1 (durationAfter dd td1)
-      _ -> Nothing
-}
+-- ruleIntervalTimeForDuration :: Rule
+-- ruleIntervalTimeForDuration = Rule
+--   { name = "<time> for <duration>"
+--   , pattern =
+--     [ Predicate isNotLatent
+--     , regex "за"
+--     , dimension Duration
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token Time td1:_:Token Duration dd:_) ->
+--         Token Time <$> interval TTime.Closed td1 (durationAfter dd td1)
+--       _ -> Nothing
+-- }
 
 ruleIntervalFromTimeForDuration :: Rule
 ruleIntervalFromTimeForDuration = Rule
@@ -2772,6 +2845,7 @@ rules =
   , ruleAbsorbInMonthYear
   , ruleAbsorbCommaTOD
   , ruleThisDOW
+  , ruleUpcomingDOW
   , ruleNextDOW
   , ruleNext2DOW
   , ruleNextTime
@@ -2839,12 +2913,12 @@ rules =
   , ruleYYYYMMDD
   , ruleDDMMYYYY
   , ruleMMYYYY
-  , ruleNoon
+  -- , ruleNoon
   , rulePartOfDays
   , ruleEarlyMorning
   , rulePODIn
   , rulePODThis
-  , ruleTonight
+  -- , ruleTonight
   , ruleAfterPartofday
   , ruleTimePOD
   , ruleTimeDuringPOD
@@ -2866,7 +2940,7 @@ rules =
   , ruleIntervalTODFrom
   -- , ruleIntervalTODAMPM
   , ruleIntervalTODBetween
-  , ruleIntervalBy
+  -- , ruleIntervalBy
   , ruleIntervalByTheEndOf
   , ruleIntervalUntilTime
   , ruleIntervalAfterFromSinceTime
@@ -2886,7 +2960,7 @@ rules =
   , ruleCycleOrdinalQuarterYear
   , ruleDurationInWithinAfter
   , ruleDurationLastNext
-  , ruleNDOWago
+  -- , ruleNDOWago
   , ruleDurationHenceAgo
   -- , ruleDayDurationHenceAgo
   -- , ruleDayInDuration
@@ -2894,7 +2968,7 @@ rules =
   , ruleDurationAfterBeforeTime
   , ruleIntervalForDurationFrom
   , ruleIntervalFromTimeForDuration
-  , ruleIntervalTimeForDuration
+  -- , ruleIntervalTimeForDuration
   -- , ruleInNumeral
   , ruleTimezone
   , ruleTimezoneBracket
@@ -2904,11 +2978,15 @@ rules =
   , ruleEndOrBeginningOfYear
   , ruleEndOrBeginningOfWeek
   , ruleNow
-  , ruleSeason
+  , ruleLastDOW
+  -- , ruleSeason
   , ruleEndOfMonth
   , ruleBeginningOfMonth
   , ruleEndOfYear
   , ruleBeginningOfYear
+  , ruleBeginningOfWeek
+  , ruleMiddleOfWeek
+  , ruleEndingOfWeek
   ]
   ++ ruleInstants
   ++ ruleDaysOfWeek
