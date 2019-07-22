@@ -15,13 +15,11 @@ import Prelude
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import qualified Duckling.Api.Tests as Api
+-- import qualified Duckling.Api.Tests as Api
 import qualified Duckling.Dimensions.Tests as Dimensions
-import qualified Duckling.Engine.Tests as Engine
+-- import qualified Duckling.Engine.Tests as Engine
 
 tests :: TestTree
 tests = testGroup "Duckling Tests"
-  [ Api.tests
-  , Dimensions.tests
-  , Engine.tests
+  [ Dimensions.tests
   ]

@@ -104,10 +104,19 @@ ruleGrainAsDuration :: Rule
 ruleGrainAsDuration = Rule
   { name = "a <unit-of-duration>"
   , pattern =
-    [ dimension TimeGrain
+    [ regex "(секунда|минута|час|ден|седмица|месец|тримесечие|година)"
     ]
   , prod = \tokens -> case tokens of
-      (Token TimeGrain grain:_) -> Just . Token Duration $ duration grain 1
+      (Token RegexMatch (GroupMatch (x:_)):_) -> case x of
+        "секунда"    -> Just . Token Duration $ duration TG.Second 1
+        "минута"     -> Just . Token Duration $ duration TG.Minute 1
+        "час"        -> Just . Token Duration $ duration TG.Hour 1
+        "ден"        -> Just . Token Duration $ duration TG.Day 1
+        "седмица"    -> Just . Token Duration $ duration TG.Week 1
+        "месец"      -> Just . Token Duration $ duration TG.Month 1
+        "тримесечие" -> Just . Token Duration $ duration TG.Quarter 1
+        "година"     -> Just . Token Duration $ duration TG.Year 1
+        _    -> Nothing
       _ -> Nothing
   }
 

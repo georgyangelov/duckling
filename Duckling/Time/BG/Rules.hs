@@ -64,20 +64,20 @@ ruleIntersectOf = Rule
       _ -> Nothing
   }
 
-ruleIntersectYear :: Rule
-ruleIntersectYear = Rule
-  { name = "intersect by \"през\", \"на\", \"за\", \",\" for year"
-  , pattern =
-    [ Predicate isNotLatent
-    -- TODO: ' '?
-    , regex "през|на|за|,"
-    , Predicate $ isGrainOfTime TG.Year
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Time td1:_:Token Time td2:_) ->
-        Token Time . notLatent <$> intersect td1 td2
-      _ -> Nothing
-  }
+-- ruleIntersectYear :: Rule
+-- ruleIntersectYear = Rule
+--   { name = "intersect by \"през\", \"на\", \"за\", \",\" for year"
+--   , pattern =
+--     [ Predicate isNotLatent
+--     -- TODO: ' '?
+--     , regex "през|на|за|,"
+--     , Predicate $ isGrainOfTime TG.Year
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token Time td1:_:Token Time td2:_) ->
+--         Token Time . notLatent <$> intersect td1 td2
+--       _ -> Nothing
+--   }
 
 ruleOnDay :: Rule
 ruleOnDay = Rule
@@ -131,7 +131,7 @@ ruleInstants :: [Rule]
 ruleInstants = mkRuleInstants
   [ ("right now"    , TG.Second, 0 , "((точно)\\s*)сега|сега|веднага|((на|в)\\s*момента)")
   , ("today"        , TG.Day   , 0 , "днес|(днешния ден)"                                )
-  , ("tomorrow"     , TG.Day   , 1 , "утре|(утрешния ден)"                               )
+  , ("tomorrow"     , TG.Day   , 1 , "утре"                                              )
   , ("yesterday"    , TG.Day   , -1, "вчера"                                             )
   , ("tomorrow+1"   , TG.Day   , 2 , "вдругиден|другиден|в другиден"                     )
   , ("tomorrow+2"   , TG.Day   , 3 , "по-в?другиден"                                     )
@@ -141,9 +141,18 @@ ruleNow :: Rule
 ruleNow = Rule
   { name = "now"
   , pattern =
-    [ regex "(точно )?сега|в момента|в този момент"
+    [ regex "(точно )?сега|веднага|(в|на) момента|в този момент"
     ]
   , prod = \_ -> tt now
+  }
+
+ruleMidnight :: Rule
+ruleMidnight = Rule
+  { name = "midnight"
+  , pattern =
+    [ regex "(в )?полунощ"
+    ]
+  , prod = \_ -> tt $ hour False 24
   }
 
 ruleLastDOW :: Rule
@@ -315,11 +324,33 @@ ruleLastCycleOfTime = Rule
       _ -> Nothing
   }
 
+ruleTheCycle :: Rule
+ruleTheCycle = Rule
+  { name = "the <cycle>"
+  , pattern =
+    [ regex "(секундата|минутата|час(а|ът)|месец(а|ът)|седмицата|годината|тримесечието)"
+    ]
+  , prod = \tokens -> case tokens of
+      (Token RegexMatch (GroupMatch (match:_)):_) ->
+        case Text.toLower match of
+          "секундата"    -> tt $ cycleNth TG.Second 0
+          "минутата"     -> tt $ cycleNth TG.Minute 0
+          "часа"         -> tt $ cycleNth TG.Hour 0
+          "часът"        -> tt $ cycleNth TG.Hour 0
+          "седмицата"    -> tt $ cycleNth TG.Week 0
+          "месеца"       -> tt $ cycleNth TG.Month 0
+          "месецът"      -> tt $ cycleNth TG.Month 0
+          "годината"     -> tt $ cycleNth TG.Year 0
+          "тримесечието" -> tt $ cycleNth TG.Quarter 0
+          _ -> Nothing
+      _ -> Nothing
+  }
+
 ruleLastNight :: Rule
 ruleLastNight = Rule
   { name = "last night"
   , pattern =
-    [ regex "(късно )?снощи"
+    [ regex "(късно )?(снощи|вчера|вечерта вчера)"
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):_) ->
@@ -440,7 +471,7 @@ ruleYear = Rule
   { name = "<year>yr"
   , pattern =
     [ Predicate $ isIntegerBetween (-10000) 10000
-    , regex "г(\\.|од(\\.|ина)?)?"
+    , regex "(\\-?та|\\.) г(\\.|од(\\.|ина)?)?|\\-?та|\\.|г(\\.|од(\\.|ина)?)?"
     ]
   , prod = \case
     (token:_:_) -> do
@@ -605,7 +636,7 @@ ruleDOMMonthYear = Rule
     , regex "[-/\\s\\.]"
     , Predicate isAMonth
     , regex "[-/\\s\\.]"
-    , regex "(\\d{4})"
+    , regex "(\\d{4})(г(\\.|од(\\.|ина)?)?)?"
     ]
   , prod = \tokens -> case tokens of
       (token:
@@ -894,27 +925,6 @@ ruleHHMMSS = Rule
 --       _ -> Nothing
 --   }
 
-ruleHONumeral :: Rule
-ruleHONumeral = Rule
-  { name = "<hour-of-day> and <integer>"
-  , pattern =
-    [ Predicate isAnHourOfDay
-    , regex "и"
-    , Predicate $ isIntegerBetween 1 59
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Time TimeData{TTime.form = Just (TTime.TimeOfDay (Just hours) is12H)
-                          ,TTime.latent = isLatent}:
-       _:
-       token:
-       _) -> do
-        n <- getIntValue token
-        if isLatent
-          then tt . mkLatent $ hourMinute is12H hours n
-          else tt $ hourMinute is12H hours n
-      _ -> Nothing
-  }
-
   -- ruleInDurationAtTime :: Rule
 -- ruleInDurationAtTime = Rule
 --   { name = "in <duration> at <time-of-day>"
@@ -930,24 +940,80 @@ ruleHONumeral = Rule
 --       _ -> Nothing
 --   }
 
+ruleAtHODuration :: Rule
+ruleAtHODuration = Rule
+  { name = "at <hour-of-day>h and <duration>"
+  , pattern =
+    [ regex "в"
+    , Predicate $ isIntegerBetween 1 24
+    , regex "ч(\\.|аса|ът)?(,|\\sи?)?"
+    , Predicate $ isDurationLessThan TG.Hour
+    ]
+  , prod = \tokens -> case tokens of
+      (_:
+       Token Time td:
+       _:
+       Token Duration dd:
+       _) -> do
+        tt $ durationAfter dd td
+      _ -> Nothing
+  }
+
 ruleHODuration :: Rule
 ruleHODuration = Rule
   { name = "<hour-of-day> and <duration>"
   , pattern =
     [ Predicate isAnHourOfDay
-    , regex "и"
+    , regex "и|,|\\s"
     , Predicate $ isDurationLessThan TG.Hour
     ]
   , prod = \tokens -> case tokens of
       (Token Time td:
-       _:
-       Token Duration dd:
-       _) -> do
-        -- Token Time <$> intersect td (inDurationInterval dd)
+        _:
+        Token Duration dd:
+        _) -> do
         tt $ durationAfter dd td
+      _ -> Nothing
+  }
+
+ruleHONumeral :: Rule
+ruleHONumeral = Rule
+  { name = "<integer> and <integer>"
+  , pattern =
+    [ Predicate $ isIntegerBetween 1 24
+    , regex "и"
+    , Predicate $ isIntegerBetween 1 59
+    ]
+  , prod = \tokens -> case tokens of
+      (tokenHour:
+        _:
+        token:
+        _) -> do
+        h <- getIntValue tokenHour
+        n <- getIntValue token
+        -- Is this isLatent making stuff break?
         -- if isLatent
         --   then tt . mkLatent $ hourMinute is12H hours n
         --   else tt $ hourMinute is12H hours n
+        tt . mkLatent $ hourMinute (h < 12) h n
+
+      _ -> Nothing
+  }
+
+ruleNumeralToHOD :: Rule
+ruleNumeralToHOD = Rule
+  { name = "<integer> без <integer>"
+  , pattern =
+    [ Predicate $ isIntegerBetween 1 24
+    , regex "без"
+    , Predicate $ isIntegerBetween 1 59
+    ]
+  , prod = \tokens -> case tokens of
+      (tokenHour:_:token:_) -> do
+        h <- getIntValue tokenHour
+        n <- getIntValue token
+        Token Time <$> minutesBefore n (hour (h < 12) h)
+        -- Token Time <$> minutesBefore n td
       _ -> Nothing
   }
 
@@ -960,10 +1026,7 @@ ruleHODurationBefore = Rule
     , Predicate $ isDurationLessThan TG.Hour
     ]
   , prod = \tokens -> case tokens of
-      (Token Time td:
-        _:
-        Token Duration dd:
-        _) -> do
+      (Token Time td:_:Token Duration dd:_) -> do
         -- Token Time <$> intersect td (inDurationInterval dd)
         tt $ durationBefore dd td
         -- if isLatent
@@ -997,21 +1060,6 @@ ruleHODHalf = Rule
 --        _) -> tt $ hourMinute is12H hours 15
 --       _ -> Nothing
 --   }
-
-ruleNumeralToHOD :: Rule
-ruleNumeralToHOD = Rule
-  { name = "<hour-of-day> без <integer>"
-  , pattern =
-    [ Predicate isAnHourOfDay
-    , regex "без"
-    , Predicate $ isIntegerBetween 1 59
-    ]
-  , prod = \tokens -> case tokens of
-      (Token Time td:_:token:_) -> do
-        n <- getIntValue token
-        Token Time <$> minutesBefore n td
-      _ -> Nothing
-  }
 
 -- ruleHalfToHOD :: Rule
 -- ruleHalfToHOD = Rule
@@ -1162,9 +1210,9 @@ ruleDDMMYYYY = Rule
 
 -- ruleNoon :: Rule
 -- ruleNoon = Rule
---   { name = "noon"
+--   { name = "at noon"
 --   , pattern =
---     [ regex "(на обяд)|(на обед)|наобед|обяд"
+--     [ regex "на об[яе]д"
 --     ]
 --   , prod = \case
 --       (_:_) -> tt (hour False 12)
@@ -1175,37 +1223,39 @@ rulePartOfDays :: Rule
 rulePartOfDays = Rule
   { name = "part of days"
   , pattern =
-    [ regex "(сутрин(та)?|(преди|на)\\s?об[ея]д|след\\s?об[ея]д|вечер(та)?|привечер|нощ(ем|та)|денят?|денем)"
+    [ regex "(сутрин(та)?|(преди|на)\\s?об[ея]д|след\\s?об[ея]д|(късно )?вечер(та)?|привечер|нощ(ем|та)|денят?|денем)"
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):_) -> do
         let (start, end) = case Text.toLower match of
-              "сутрин"     -> (hour False 4, hour False 12)
-              "сутринта"   -> (hour False 4, hour False 12)
-              "на обяд"    -> (hour False 11, hour False 14)
-              "на обед"    -> (hour False 11, hour False 14)
-              "наобед"     -> (hour False 11, hour False 14)
-              "наобяд"     -> (hour False 11, hour False 14)
-              "предиобед"  -> (hour False 6, hour False 12)
-              "предиобяд"  -> (hour False 6, hour False 12)
-              "преди обед" -> (hour False 6, hour False 12)
-              "преди обяд" -> (hour False 6, hour False 12)
-              "следобед"   -> (hour False 12, hour False 19)
-              "следобяд"   -> (hour False 12, hour False 19)
-              "след обед"  -> (hour False 12, hour False 19)
-              "след обяд"  -> (hour False 12, hour False 19)
-              "вечер"      -> (hour False 18, hour False 0)
-              "вечерта"    -> (hour False 18, hour False 0)
-              "привечер"   -> (hour False 18, hour False 0)
-              -- TODO: Does this work?
-              "нощем"      -> (hour False 22, hour False 5)
-              "нощта"      -> (hour False 22, hour False 5)
-              "деня"       -> (hour False 7, hour False 22)
-              "денят"      -> (hour False 7, hour False 22)
-              "денем"      -> (hour False 7, hour False 22)
-              _            -> (hour False 12, hour False 19)
+              "сутрин"         -> (hour False 5, hour False 10)
+              "сутринта"       -> (hour False 5, hour False 10)
+              "на обяд"        -> (hour False 11, hour False 14)
+              "на обед"        -> (hour False 11, hour False 14)
+              "наобед"         -> (hour False 11, hour False 14)
+              "наобяд"         -> (hour False 11, hour False 14)
+              "предиобед"      -> (hour False 7, hour False 12)
+              "предиобяд"      -> (hour False 7, hour False 12)
+              "преди обед"     -> (hour False 7, hour False 12)
+              "преди обяд"     -> (hour False 7, hour False 12)
+              "следобед"       -> (hour False 12, hour False 19)
+              "следобяд"       -> (hour False 12, hour False 19)
+              "след обед"      -> (hour False 12, hour False 19)
+              "след обяд"      -> (hour False 12, hour False 19)
+              "вечер"          -> (hour False 18, hour False 0)
+              "вечерта"        -> (hour False 18, hour False 0)
+              "привечер"       -> (hour False 18, hour False 0)
+              "късно вечер"    -> (hour False 21, hour False 0)
+              "късно вечерта"  -> (hour False 21, hour False 0)
+              "нощем"          -> (hour False 21, hour False 7)
+              "нощта"          -> (hour False 21, hour False 7)
+              "деня"           -> (hour False 7, hour False 22)
+              "денят"          -> (hour False 7, hour False 22)
+              "денем"          -> (hour False 7, hour False 22)
+              _                -> (hour False 12, hour False 19)
         td <- interval TTime.Open start end
-        tt . partOfDay $ mkLatent td
+        -- tt . partOfDay $ mkLatent td
+        tt . partOfDay $ td
       _ -> Nothing
   }
 
@@ -1264,8 +1314,8 @@ ruleAfterPartofday = Rule
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):_) -> do
         (start, end) <- case Text.toLower match of
-          "закуска" -> Just (hour False 7, hour False 9)
-          "вечеря"  -> Just (hour False 18, hour False 20)
+          "закуска" -> Just (hour False 9, hour False 12)
+          "вечеря"  -> Just (hour False 19, hour False 21)
           "работа"  -> Just (hour False 17, hour False 21)
           "училище" -> Just (hour False 15, hour False 21)
           _         -> Nothing
@@ -2458,7 +2508,7 @@ ruleCycleOrdinalOfTime = Rule
   , pattern =
     [ dimension Ordinal
     , dimension TimeGrain
-    , regex "от|в|на"
+    , regex "от|в|на|през|за"
     , dimension Time
     ]
   , prod = \tokens -> case tokens of
@@ -2616,20 +2666,36 @@ ruleCycleOrdinalQuarterYear = Rule
 
 ruleDurationInWithinAfter :: Rule
 ruleDurationInWithinAfter = Rule
-  { name = "in|within|after <duration>"
+  { name = "in|within|after|before <duration>"
   , pattern =
-    [ regex "(до|след)"
+    [ regex "(до|след|преди)"
     , dimension Duration
     ]
   , prod = \tokens -> case tokens of
       (Token RegexMatch (GroupMatch (match:_)):
        Token Duration dd:
        _) -> case Text.toLower match of
-         "до"   -> Token Time <$> interval TTime.Open now (inDuration dd)
-         "след" -> tt . withDirection TTime.After $ inDuration dd
-         _      -> Nothing
+         "преди" -> tt . withDirection TTime.Before $ durationAgo dd
+         "до"    -> Token Time <$> interval TTime.Open now (inDuration dd)
+         "след"  -> tt . withDirection TTime.After $ inDuration dd
+         _       -> Nothing
       _ -> Nothing
   }
+
+-- ruleDurationHenceAgo :: Rule
+-- ruleDurationHenceAgo = Rule
+--   { name = "<duration> ago"
+--   , pattern =
+--     [ regex "(преди|след)"
+--     , dimension Duration
+--     ]
+--   , prod = \tokens -> case tokens of
+--       (Token RegexMatch (GroupMatch (match:_)):
+--         Token Duration dd:
+--         _) -> case Text.toLower match of
+--         _       -> tt $ inDuration dd
+--       _ -> Nothing
+--   }
 
 -- ruleNDOWago :: Rule
 -- ruleNDOWago = Rule
@@ -2644,22 +2710,6 @@ ruleDurationInWithinAfter = Rule
 --         tt $ predNth (- (floor v)) False td
 --       _ -> Nothing
 --   }
-
-ruleDurationHenceAgo :: Rule
-ruleDurationHenceAgo = Rule
-  { name = "<duration> ago"
-  , pattern =
-    [ regex "(преди|след)"
-    , dimension Duration
-    ]
-  , prod = \tokens -> case tokens of
-      (Token RegexMatch (GroupMatch (match:_)):
-       Token Duration dd:
-       _) -> case Text.toLower match of
-        "преди" -> tt $ durationAgo dd
-        _       -> tt $ inDuration dd
-      _ -> Nothing
-  }
 
 -- ruleDayDurationHenceAgo :: Rule
 -- ruleDayDurationHenceAgo = Rule
@@ -2839,7 +2889,7 @@ rules :: [Rule]
 rules =
   [ ruleIntersect
   , ruleIntersectOf
-  , ruleIntersectYear
+  -- , ruleIntersectYear
   , ruleOnDay
   , ruleAbsorbOnADOW
   , ruleAbsorbInMonthYear
@@ -2855,6 +2905,7 @@ rules =
   -- , ruleTimeBeforeLastAfterNext
   , ruleLastDOWOfTime
   , ruleLastCycleOfTime
+  , ruleTheCycle
   , ruleLastNight
   , ruleLastWeekendOfMonth
   , ruleNthTimeOfTime
@@ -2896,9 +2947,10 @@ rules =
   -- , spelledOutHourPM
   -- , ruleMilitarySpelledOutAMPM2
   -- , ruleTODAMPM
-  , ruleHONumeral
+  , ruleAtHODuration
   , ruleHODuration
   , ruleHODurationBefore
+  , ruleHONumeral
   , ruleHODHalf
   -- , ruleHODQuarter
   , ruleNumeralToHOD
@@ -2961,7 +3013,7 @@ rules =
   , ruleDurationInWithinAfter
   , ruleDurationLastNext
   -- , ruleNDOWago
-  , ruleDurationHenceAgo
+  -- , ruleDurationHenceAgo
   -- , ruleDayDurationHenceAgo
   -- , ruleDayInDuration
   -- , ruleInDurationAtTime
@@ -2978,6 +3030,7 @@ rules =
   , ruleEndOrBeginningOfYear
   , ruleEndOrBeginningOfWeek
   , ruleNow
+  , ruleMidnight
   , ruleLastDOW
   -- , ruleSeason
   , ruleEndOfMonth
